@@ -1,90 +1,154 @@
+# yt_music_keyword_app.py
+"""
+Streamlit app: YouTube music keyword explorer
+1. Fetch YouTube search suggestions for a seed word (music‑related)
+2. Display them in an interactive table with CSV download
+3. On demand, append Google Trends (YouTube Search) popularity index
+
+Dependencies: streamlit, pandas, requests, pytrends
+Run: streamlit run yt_music_keyword_app.py
+"""
+
 import streamlit as st
-import requests
 import pandas as pd
 import string
+import requests
 import time
-from typing import List, Set
+from pytrends.request import TrendReq
 
+# -------------------------------------
+# Helper functions
+# -------------------------------------
 
-def get_suggestions(base: str, lang: str = "en", country: str = "US", pause: float = 0.1) -> List[str]:
-    """Return a sorted list of unique YouTube search suggestions that start with the
-    supplied *base* word followed by a space and a‐z characters.
-
-    Parameters
-    ----------
-    base : str
-        Seed phrase (e.g. "music").
-    lang : str, optional
-        Interface language code passed as *hl* param to Google suggest endpoint.
-    country : str, optional
-        Region code passed as *gl* param to Google suggest endpoint.
-    pause : float, optional
-        Delay between outbound requests to avoid 429 errors.
-    """
-    suggestions: Set[str] = set()
-    for ch in string.ascii_lowercase:
-        query = f"{base} {ch}"
+def fetch_suggestions(seed: str, delay: float = 0.15) -> list[str]:
+    """Return unique YouTube autocomplete suggestions for `seed` + [a‑z0‑9]."""
+    suggestions = set()
+    alphabet = string.ascii_lowercase + "0123456789"
+    for ch in alphabet:
+        query = f"{seed} {ch}"
         url = (
-            "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt"
-            f"&hl={lang}&gl={country}&q={query}"
+            "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q="
+            + requests.utils.quote(query)
         )
         try:
             resp = requests.get(url, timeout=4)
-            if resp.status_code == 200:
-                data = resp.json()
-                # Google returns list; second element holds suggestions
-                suggestions.update(data[1])
-        except Exception as exc:
-            # We silently continue but surface the error to the user later
-            st.warning(f"Failed to fetch suggestions for '{query}': {exc}")
-        time.sleep(pause)
-    return sorted(suggestions)
+            resp.raise_for_status()
+            data = resp.json()
+            # data[1] is the list of suggestions
+            suggestions.update(data[1])
+        except (requests.RequestException, ValueError):
+            continue
+        time.sleep(delay)  # be polite to the service
+    # keep only phrases that start with the seed token (case‑insensitive)
+    filtered = [s for s in suggestions if s.lower().startswith(seed.lower())]
+    return sorted(filtered)
 
 
-def main() -> None:
-    st.set_page_config(page_title="YouTube Suggest Explorer", page_icon="🎵", layout="wide")
+def fetch_trends(keywords: list[str], timeframe: str, geo: str = "") -> dict[str, float]:
+    """Return average interest index from Google Trends (YouTube Search) for each keyword."""
+    pytrends = TrendReq(hl="en-US", tz=0)
+    interest: dict[str, float] = {}
 
-    st.title("🎵 YouTube Suggest Explorer")
-    st.markdown(
-        "Discover what people are *actually* typing on YouTube. Enter a seed keyword "
-        "and we'll scrape YouTube's autocomplete suggestions A‑Z, then show them in "
-        "an interactive table you can download as CSV." 
+    # Google Trends allows ≤5 keywords per payload
+    for i in range(0, len(keywords), 5):
+        chunk = keywords[i : i + 5]
+        try:
+            pytrends.build_payload(
+                kw_list=chunk, timeframe=timeframe, geo=geo, gprop="youtube"
+            )
+            df = pytrends.interest_over_time()
+            if not df.empty:
+                interest.update(df[chunk].mean().to_dict())
+        except Exception:
+            continue
+    return interest
+
+
+# -------------------------------------
+# Streamlit UI
+# -------------------------------------
+
+st.set_page_config(page_title="YouTube Music Keyword Explorer", layout="centered")
+st.title("🎵 YouTube Music Keyword Explorer")
+
+# Seed term input
+seed = st.text_input(
+    "Enter base keyword (seed)",
+    value="music",
+    help="The script will combine this word with A‑Z & 0‑9 to fetch YouTube autocomplete suggestions.",
+)
+
+# Google Trends settings
+with st.expander("Google Trends settings", expanded=False):
+    col1, col2 = st.columns(2)
+    with col1:
+        timeframe_label = st.selectbox(
+            "Select timeframe", [
+                "Past 7 days",
+                "Past 30 days",
+                "Past 90 days",
+                "Past 12 months",
+                "Past 5 years",
+            ],
+            index=2,
+        )
+    with col2:
+        geo_input = st.text_input(
+            "Geo (ISO‑2 country code, leave blank for Worldwide)", value=""
+        )
+
+# Mapping label -> Trends timeframe shorthand
+TIMEFRAME_MAP = {
+    "Past 7 days": "now 7-d",
+    "Past 30 days": "today 1-m",
+    "Past 90 days": "today 3-m",
+    "Past 12 months": "today 12-m",
+    "Past 5 years": "today 5-y",
+}
+
+timeframe = TIMEFRAME_MAP[timeframe_label]
+geo = geo_input.strip().upper()
+
+st.divider()
+
+if st.button("🔍 Get YouTube suggestions"):
+    if not seed:
+        st.warning("Please enter a seed keyword.")
+    else:
+        with st.spinner("Fetching suggestions …"):
+            suggestions = fetch_suggestions(seed)
+        if suggestions:
+            df = pd.DataFrame({"keyword": suggestions})
+            st.session_state["keywords_df"] = df
+            st.success(f"Collected {len(df)} unique suggestions.")
+        else:
+            st.error("No suggestions found. Try a different seed word.")
+
+# Display table if present
+if "keywords_df" in st.session_state:
+    st.subheader("Suggestions table")
+    df = st.session_state["keywords_df"]
+    st.dataframe(df, use_container_width=True)
+
+    # Download button
+    csv_data = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download CSV", data=csv_data, file_name="yt_suggestions.csv", mime="text/csv"
     )
 
-    with st.sidebar:
-        st.header("Parameters")
-        base = st.text_input("Seed keyword", value="music")
-        col1, col2 = st.columns(2)
-        with col1:
-            lang = st.text_input("Language (hl)", value="en")
-        with col2:
-            country = st.text_input("Country (gl)", value="US")
-        pause = st.slider("Pause between requests (sec)", 0.0, 1.0, 0.1, 0.05)
-        submitted = st.button("Fetch suggestions 🚀")
-
-    if submitted:
-        if not base.strip():
-            st.error("Seed keyword cannot be empty.")
-            st.stop()
-
-        with st.spinner("Contacting YouTube autocomplete API …"):
-            suggestions = get_suggestions(base.strip(), lang.strip(), country.strip(), pause)
-
-        if suggestions:
-            df = pd.DataFrame({"Suggested Query": suggestions})
-            st.success(f"Fetched {len(df)} unique suggestions for '{base}'.")
+    if st.button("📈 Fetch Google Trends info"):
+        with st.spinner("Fetching Google Trends data …"):
+            interest = fetch_trends(df["keyword"].tolist(), timeframe=timeframe, geo=geo)
+        if interest:
+            df["interest"] = df["keyword"].map(lambda x: round(interest.get(x, 0), 2))
+            st.session_state["keywords_df"] = df  # update session data
+            st.success("Trends data appended.")
             st.dataframe(df, use_container_width=True)
 
-            csv_bytes = df.to_csv(index=False).encode("utf-8")
+            # Updated download button
+            csv_trend = df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📄 Download CSV",
-                data=csv_bytes,
-                file_name=f"{base.replace(' ', '_')}_yt_suggestions.csv",
-                mime="text/csv",
+                "Download CSV with Trends", data=csv_trend, file_name="yt_keywords_trends.csv", mime="text/csv"
             )
         else:
-            st.info("No suggestions returned. Try a different keyword or region.")
-
-
-if __name__ == "__main__":
-    main()
+            st.error("Failed to retrieve Trends data. Try again later.")
