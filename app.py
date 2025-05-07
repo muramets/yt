@@ -1,9 +1,7 @@
 # app.py
 import streamlit as st
 from pytrends.request import TrendReq
-from pytrends.exceptions import ResponseError
 import pandas as pd
-import re
 
 
 def main():
@@ -13,9 +11,9 @@ def main():
     keyword = st.text_input("Enter keyword", "lofi study music")
 
     # Параметры запроса с пояснениями
-    timeframe_input = st.text_input(
-        "Timeframe (e.g., 'now 7-d' for last 7 days, 'today 1-m' for last month, or 'YYYY-MM-DD YYYY-MM-DD')",
-        "now 7-d"
+    timeframe = st.text_input(
+        "Timeframe (e.g., 'today 7-d' for last 7 days, 'today 30-d' for last 30 days, or 'YYYY-MM-DD YYYY-MM-DD')",
+        "today 7-d"
     )
     geo = st.text_input(
         "Region code (leave empty for worldwide, e.g. 'US' or 'RU')",
@@ -27,7 +25,6 @@ def main():
         index=1
     )
 
-    # gprop mapping
     gprop_map = {
         "Web Search": "",
         "YouTube": "youtube",
@@ -39,19 +36,10 @@ def main():
     gprop = gprop_map[platform]
 
     if keyword:
-        # Поправка timeframe: если пользователь указал 'today X-d', заменяем на 'now X-d'
-        tf = timeframe_input.strip()
-        m = re.match(r"^today (\d+)-d$", tf)
-        if m:
-            days = m.group(1)
-            tf = f"now {days}-d"
-            st.info(f"Timeframe автокорректирован на '{tf}' для корректной работы API")
-
-        # Показываем Payload для отладки
         st.write("**Payload for debugging:**")
         st.json({
             "kw_list": [keyword],
-            "timeframe": tf,
+            "timeframe": timeframe,
             "geo": geo,
             "gprop": gprop
         })
@@ -59,24 +47,19 @@ def main():
         with st.spinner("Fetching data from Google Trends..."):
             pytrends = TrendReq(hl='en-US', tz=0)
             try:
+                # Попытка создания payload и запроса
                 pytrends.build_payload(
                     kw_list=[keyword],
-                    timeframe=tf,
+                    timeframe=timeframe,
                     geo=geo,
                     gprop=gprop
                 )
                 data = pytrends.interest_over_time()
 
-            except ResponseError as re_err:
-                status = getattr(re_err.response, 'status_code', 'unknown')
-                st.error(f"Google Trends API returned status code {status}")
-                if hasattr(re_err, 'response'):
-                    st.subheader("Response Text")
-                    st.code(re_err.response.text or "(empty)")
-                return
-
             except Exception as e:
-                st.error(f"Unexpected error: {e}")
+                # Вывод подробностей ошибки для диагностики
+                st.error(f"Ошибка запроса: {e}")
+                st.exception(e)
                 return
 
             if data.empty:
