@@ -9,25 +9,56 @@ import re
 def main():
     st.title("Google Trends Popularity Index")
 
-    # Ввод ключевого слова
-    keyword = st.text_input("Enter keyword", "lofi study music")
+    # Query form
+    with st.form("query_form"):
+        keyword = st.text_input("Keyword", "lofi study music")
 
-    # Параметры запроса с пояснениями
-    timeframe_input = st.text_input(
-        "Timeframe (e.g., 'now 7-d' for last 7 days, 'today 1-m' for last month, or 'YYYY-MM-DD YYYY-MM-DD')",
-        "now 7-d"
-    )
-    geo = st.text_input(
-        "Region code (leave empty for worldwide, e.g. 'US' or 'RU')",
-        "US"
-    )
-    platform = st.selectbox(
-        "Platform",
-        ["Web Search", "YouTube", "Image Search", "News Search", "Google Shopping", "Top Charts"],
-        index=1
-    )
+        # Timeframe selection
+        timeframe_option = st.selectbox(
+            "Timeframe",
+            ["Last 7 days", "Last 30 days", "Last 90 days", "Custom"],
+            index=1
+        )
+        if timeframe_option == "Custom":
+            custom_tf = st.text_input(
+                "Custom timeframe",
+                "now 7-d",
+                help="Examples: 'now 7-d' for last 7 days, 'now 30-d' for last 30 days, or '2025-01-01 2025-05-01' for a specific date range"
+            )
+            tf = custom_tf.strip()
+        else:
+            tf_map = {
+                "Last 7 days": "now 7-d",
+                "Last 30 days": "now 30-d",
+                "Last 90 days": "now 90-d"
+            }
+            tf = tf_map[timeframe_option]
 
-    # gprop mapping
+        geo = st.text_input(
+            "Region code",
+            "",
+            help="Enter a country code (e.g., 'US', 'RU') or leave empty for Worldwide"
+        )
+
+        platform = st.selectbox(
+            "Platform",
+            ["Web Search", "YouTube", "Image Search", "News Search", "Google Shopping", "Top Charts"],
+            index=1
+        )
+
+        submit = st.form_submit_button("Submit")
+
+    if not submit:
+        return
+
+    # Auto-correct 'today X-d' to 'now X-d' for API compatibility
+    m = re.match(r"^today (\d+)-d$", tf)
+    if m:
+        days = m.group(1)
+        tf = f"now {days}-d"
+        st.info(f"Timeframe automatically adjusted to '{tf}' for API compatibility.")
+
+    # Map platform to gprop parameter
     gprop_map = {
         "Web Search": "",
         "YouTube": "youtube",
@@ -38,17 +69,8 @@ def main():
     }
     gprop = gprop_map[platform]
 
-    if keyword:
-        # Поправка timeframe: если пользователь указал 'today X-d', заменяем на 'now X-d'
-        tf = timeframe_input.strip()
-        m = re.match(r"^today (\d+)-d$", tf)
-        if m:
-            days = m.group(1)
-            tf = f"now {days}-d"
-            st.info(f"Timeframe автокорректирован на '{tf}' для корректной работы API")
-
-        # Показываем Payload для отладки
-        st.write("**Payload for debugging:**")
+    # Debug payload in sidebar
+    with st.sidebar.expander("Debug Payload", expanded=False):
         st.json({
             "kw_list": [keyword],
             "timeframe": tf,
@@ -56,41 +78,40 @@ def main():
             "gprop": gprop
         })
 
-        with st.spinner("Fetching data from Google Trends..."):
-            pytrends = TrendReq(hl='en-US', tz=0)
-            try:
-                pytrends.build_payload(
-                    kw_list=[keyword],
-                    timeframe=tf,
-                    geo=geo,
-                    gprop=gprop
-                )
-                data = pytrends.interest_over_time()
+    # Fetch data
+    with st.spinner("Fetching data from Google Trends..."):
+        pytrends = TrendReq(hl='en-US', tz=0)
+        try:
+            pytrends.build_payload(
+                kw_list=[keyword],
+                timeframe=tf,
+                geo=geo,
+                gprop=gprop
+            )
+            data = pytrends.interest_over_time()
+        except ResponseError as re_err:
+            status = getattr(re_err.response, 'status_code', 'unknown')
+            st.error(f"Google Trends API returned status code {status}.")
+            if hasattr(re_err, 'response'):
+                st.subheader("API Response Text")
+                st.code(re_err.response.text or "(empty)")
+            return
+        except Exception as e:
+            st.error(f"Unexpected error: {e}")
+            return
 
-            except ResponseError as re_err:
-                status = getattr(re_err.response, 'status_code', 'unknown')
-                st.error(f"Google Trends API returned status code {status}")
-                if hasattr(re_err, 'response'):
-                    st.subheader("Response Text")
-                    st.code(re_err.response.text or "(empty)")
-                return
+    # Display results
+    if data.empty:
+        st.warning("No data found for this query. Try adjusting your parameters.")
+    else:
+        if 'isPartial' in data.columns:
+            data = data.drop(columns=['isPartial'])
 
-            except Exception as e:
-                st.error(f"Unexpected error: {e}")
-                return
+        st.subheader("Interest Over Time")
+        st.line_chart(data[keyword])
 
-            if data.empty:
-                st.warning("No data found for this query. Попробуйте изменить параметры.")
-            else:
-                # Убираем колонку isPartial
-                if 'isPartial' in data.columns:
-                    data = data.drop(labels=['isPartial'], axis=1)
-
-                st.subheader("Interest Over Time")
-                st.line_chart(data[keyword])
-
-                st.subheader("Raw Data")
-                st.dataframe(data)
+        st.subheader("Raw Data")
+        st.dataframe(data)
 
 
 if __name__ == "__main__":
