@@ -8,10 +8,6 @@ import re
 
 def main():
     st.title("Google Trends Popularity Index")
-    # Tip for opening sidebar
-    st.markdown(
-        "**Tip:** Click the ☰ icon in the top-right corner to open the sidebar and access the Debug Payload."
-    )
 
     # Query form
     with st.form("query_form"):
@@ -22,16 +18,17 @@ def main():
             "Timeframe",
             ["Last 7 days", "Last 30 days", "Last 90 days", "Custom"],
             index=1,
-            help="Choose a preset timeframe or select 'Custom' to enter your own date range"
+            help="Select a preset range or choose 'Custom' to enter your own period"
         )
         if timeframe_option == "Custom":
             custom_tf = st.text_input(
                 "Custom timeframe",
-                "now 7-d",
+                "",
+                placeholder="now 7-d or YYYY-MM-DD YYYY-MM-DD",
                 help=(
-                    "Enter 'now 7-d' for the last 7 days, 'now 30-d' for the last 30 days, "
-                    "or specify a date range in the format 'YYYY-MM-DD YYYY-MM-DD', "
-                    "e.g. '2025-01-01 2025-05-01' for Jan 1 to May 1, 2025"
+                    "For recent periods: 'now 7-d' for last 7 days, 'now 30-d' for last 30 days\n"
+                    "For exact dates: 'YYYY-MM-DD YYYY-MM-DD', e.g. '2025-01-01 2025-05-01', "
+                    "which means from Jan 1, 2025 to May 1, 2025"
                 )
             )
             tf = custom_tf.strip()
@@ -60,14 +57,14 @@ def main():
     if not submit:
         return
 
-    # Auto-correct 'today X-d' to 'now X-d' for API compatibility
+    # Auto-correct 'today X-d' to 'now X-d'
     m = re.match(r"^today (\d+)-d$", tf)
     if m:
         days = m.group(1)
         tf = f"now {days}-d"
-        st.info(f"Timeframe automatically adjusted to '{tf}' for API compatibility.")
+        st.info(f"Timeframe adjusted to '{tf}' for compatibility.")
 
-    # Map platform to gprop parameter
+    # Map platform to gprop
     gprop_map = {
         "Web Search": "",
         "YouTube": "youtube",
@@ -78,8 +75,8 @@ def main():
     }
     gprop = gprop_map[platform]
 
-    # Debug payload in sidebar
-    with st.sidebar.expander("Debug Payload", expanded=False):
+    # Debug payload expander in main area
+    with st.expander("Debug Payload", expanded=False):
         st.json({
             "kw_list": [keyword],
             "timeframe": tf,
@@ -88,7 +85,7 @@ def main():
         })
 
     # Fetch data
-    with st.spinner("Fetching data from Google Trends..."):
+    with st.spinner("Fetching data..."):
         pytrends = TrendReq(hl='en-US', tz=0)
         try:
             pytrends.build_payload(
@@ -111,7 +108,7 @@ def main():
 
     # Display results
     if data.empty:
-        st.warning("No data found for this query. Try adjusting your parameters.")
+        st.warning("No data found. Try adjusting your parameters.")
     else:
         if 'isPartial' in data.columns:
             data = data.drop(columns=['isPartial'])
