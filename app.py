@@ -13,32 +13,34 @@ def main():
     with st.form("query_form"):
         keyword = st.text_input("Keyword", "lofi study music")
 
-        # Timeframe selection with help
+        # Timeframe selection
         timeframe_option = st.selectbox(
             "Timeframe",
             ["Last 7 days", "Last 30 days", "Last 90 days", "Custom"],
-            index=1,
-            help="Select a preset range or choose 'Custom' to enter your own period"
+            index=1
         )
+
+        # If custom timeframe is selected, show detailed instructions and input
         if timeframe_option == "Custom":
+            st.markdown(
+                "**Custom Timeframe Instructions:**\n"
+                "- For a recent period, enter `now X-d` (e.g., `now 7-d` for the last 7 days).\n"
+                "- For a specific date range, enter two dates in `YYYY-MM-DD YYYY-MM-DD` format (e.g., `2025-01-01 2025-05-01` for Jan 1 2025 to May 1 2025)."
+            )
             custom_tf = st.text_input(
-                "Custom timeframe",
+                "Enter custom timeframe",
                 "",
-                placeholder="now 7-d or YYYY-MM-DD YYYY-MM-DD",
-                help=(
-                    "For recent periods: 'now 7-d' for last 7 days, 'now 30-d' for last 30 days\n"
-                    "For exact dates: 'YYYY-MM-DD YYYY-MM-DD', e.g. '2025-01-01 2025-05-01', "
-                    "which means from Jan 1, 2025 to May 1, 2025"
-                )
+                placeholder="now 7-d or 2025-01-01 2025-05-01"
             )
             tf = custom_tf.strip()
         else:
-            tf_map = {
+            # Map presets to API format
+            preset_map = {
                 "Last 7 days": "now 7-d",
                 "Last 30 days": "now 30-d",
                 "Last 90 days": "now 90-d"
             }
-            tf = tf_map[timeframe_option]
+            tf = preset_map[timeframe_option]
 
         geo = st.text_input(
             "Region code",
@@ -57,12 +59,12 @@ def main():
     if not submit:
         return
 
-    # Auto-correct 'today X-d' to 'now X-d'
+    # Auto-correct 'today X-d' to 'now X-d' if used
     m = re.match(r"^today (\d+)-d$", tf)
     if m:
         days = m.group(1)
         tf = f"now {days}-d"
-        st.info(f"Timeframe adjusted to '{tf}' for compatibility.")
+        st.info(f"Timeframe adjusted to '{tf}' for API compatibility.")
 
     # Map platform to gprop
     gprop_map = {
@@ -75,7 +77,7 @@ def main():
     }
     gprop = gprop_map[platform]
 
-    # Debug payload expander in main area
+    # Debug payload expander (collapsed by default)
     with st.expander("Debug Payload", expanded=False):
         st.json({
             "kw_list": [keyword],
@@ -84,7 +86,7 @@ def main():
             "gprop": gprop
         })
 
-    # Fetch data
+    # Fetch data from Google Trends
     with st.spinner("Fetching data..."):
         pytrends = TrendReq(hl='en-US', tz=0)
         try:
@@ -95,12 +97,12 @@ def main():
                 gprop=gprop
             )
             data = pytrends.interest_over_time()
-        except ResponseError as re_err:
-            status = getattr(re_err.response, 'status_code', 'unknown')
+        except ResponseError as err:
+            status = getattr(err.response, 'status_code', 'unknown')
             st.error(f"Google Trends API returned status code {status}.")
-            if hasattr(re_err, 'response'):
+            if hasattr(err, 'response'):
                 st.subheader("API Response Text")
-                st.code(re_err.response.text or "(empty)")
+                st.code(err.response.text or "(empty)")
             return
         except Exception as e:
             st.error(f"Unexpected error: {e}")
