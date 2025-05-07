@@ -53,11 +53,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-# requirements.txt
-# --------------------------------
-# streamlit cloud deploy via GitHub
-streamlit
-pytrends
-pandas
