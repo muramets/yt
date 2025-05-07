@@ -20,15 +20,15 @@ def main():
             index=1
         )
 
-        # If custom timeframe is selected, show detailed instructions and input
+        # If custom timeframe is selected, show instructions and input
         if timeframe_option == "Custom":
-            st.markdown(
-                "**Custom Timeframe Instructions:**\n"
-                "- For a recent period, enter `now X-d` (e.g., `now 7-d` for the last 7 days).\n"
-                "- For a specific date range, enter two dates in `YYYY-MM-DD YYYY-MM-DD` format (e.g., `2025-01-01 2025-05-01` for Jan 1 2025 to May 1 2025)."
+            st.info(
+                "**How to enter a custom timeframe:**\n"
+                "- For recent periods, type `now 7-d` (last 7 days) or `now 30-d` (last 30 days).\n"
+                "- For a specific date range, type two dates in `YYYY-MM-DD YYYY-MM-DD` format, e.g. `2025-01-01 2025-05-01` (Jan 1 to May 1, 2025)."
             )
             custom_tf = st.text_input(
-                "Enter custom timeframe",
+                "Custom timeframe",
                 "",
                 placeholder="now 7-d or 2025-01-01 2025-05-01"
             )
@@ -42,12 +42,14 @@ def main():
             }
             tf = preset_map[timeframe_option]
 
+        # Region code input
         geo = st.text_input(
             "Region code",
             "",
             help="Enter a country code (e.g., 'US', 'RU') or leave empty for Worldwide"
         )
 
+        # Platform selection
         platform = st.selectbox(
             "Platform",
             ["Web Search", "YouTube", "Image Search", "News Search", "Google Shopping", "Top Charts"],
@@ -59,12 +61,12 @@ def main():
     if not submit:
         return
 
-    # Auto-correct 'today X-d' to 'now X-d' if used
-    m = re.match(r"^today (\d+)-d$", tf)
-    if m:
-        days = m.group(1)
-        tf = f"now {days}-d"
-        st.info(f"Timeframe adjusted to '{tf}' for API compatibility.")
+    # Auto-correct 'today X-d' to 'now X-d'
+    if tf.startswith("today "):
+        days_match = re.match(r"today (\d+)-d", tf)
+        if days_match:
+            tf = f"now {days_match.group(1)}-d"
+            st.info(f"Timeframe adjusted to '{tf}' for API compatibility.")
 
     # Map platform to gprop
     gprop_map = {
@@ -77,7 +79,7 @@ def main():
     }
     gprop = gprop_map[platform]
 
-    # Debug payload expander (collapsed by default)
+    # Debug payload expander
     with st.expander("Debug Payload", expanded=False):
         st.json({
             "kw_list": [keyword],
@@ -86,16 +88,11 @@ def main():
             "gprop": gprop
         })
 
-    # Fetch data from Google Trends
+    # Fetch data
     with st.spinner("Fetching data..."):
         pytrends = TrendReq(hl='en-US', tz=0)
         try:
-            pytrends.build_payload(
-                kw_list=[keyword],
-                timeframe=tf,
-                geo=geo,
-                gprop=gprop
-            )
+            pytrends.build_payload(kw_list=[keyword], timeframe=tf, geo=geo, gprop=gprop)
             data = pytrends.interest_over_time()
         except ResponseError as err:
             status = getattr(err.response, 'status_code', 'unknown')
