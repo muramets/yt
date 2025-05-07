@@ -4,12 +4,41 @@ from pytrends.request import TrendReq
 from pytrends.exceptions import ResponseError
 import pandas as pd
 import re
+import time
+
+
+# Helper: fetch data with retry/backoff for 429 errors
+def fetch_interest(keyword: str, tf: str, geo: str, gprop: str, max_attempts: int = 4):
+    """Return interest_over_time DataFrame or raise last exception."""
+    # TrendReq with built‑in retry/backoff
+    pytrends = TrendReq(
+        hl="en-US",
+        tz=0,
+        retries=0,  # we handle retries manually for more control
+        backoff_factor=0,
+        timeout=(10, 25),
+    )
+    attempt = 0
+    while True:
+        try:
+            pytrends.build_payload([keyword], timeframe=tf, geo=geo, gprop=gprop)
+            return pytrends.interest_over_time()
+        except ResponseError as err:
+            status = getattr(err.response, "status_code", None)
+            if status == 429 and attempt < max_attempts - 1:
+                sleep_time = 2 ** attempt  # exponential backoff: 1,2,4,8 sec
+                time.sleep(sleep_time)
+                attempt += 1
+            else:
+                raise
+        except Exception:
+            raise
 
 
 def main():
     st.title("Google Trends Popularity Index")
 
-    # --- INPUT WIDGETS ---
+    # INPUTS --------------------------------------------------------------
     keyword = st.text_input("Keyword", "lofi study music")
 
     timeframe_option = st.selectbox(
@@ -18,11 +47,10 @@ def main():
         index=1,
     )
 
-    # Show custom timeframe field only when "Custom" is selected
     if timeframe_option == "Custom":
         st.info(
             "**Custom timeframe format:**\n"
-            "• Recent periods: `now 7-d` (last 7 days), `now 30-d` (last 30 days).\n"
+            "• Recent periods: `now 7-d` (last 7 days) or `now 30-d` (last 30 days).\n"
             "• Exact date range: `YYYY-MM-DD YYYY-MM-DD`, e.g. `2025-01-01 2025-05-01`."
         )
         custom_tf = st.text_input(
@@ -33,12 +61,11 @@ def main():
         )
         tf = custom_tf.strip()
     else:
-        preset_map = {
+        tf = {
             "Last 7 days": "now 7-d",
             "Last 30 days": "now 30-d",
             "Last 90 days": "now 90-d",
-        }
-        tf = preset_map[timeframe_option]
+        }[timeframe_option]
 
     geo = st.text_input(
         "Region code (optional)",
@@ -53,27 +80,20 @@ def main():
     )
 
     submit = st.button("Submit")
-
-    # Stop if user hasn't clicked Submit yet
     if not submit:
         return
 
-    # --- PROCESS INPUTS ---
-    if timeframe_option != "Custom":
-        st.info(f"Selected timeframe: **{tf}**")
-    else:
-        if not tf:
-            st.error("Please enter a custom timeframe.")
-            return
+    # VALIDATE -----------------------------------------------------------
+    if timeframe_option == "Custom" and not tf:
+        st.error("Please enter a custom timeframe.")
+        return
 
-    # Convert 'today X-d' → 'now X-d' if needed
-    if tf.startswith("today "):
-        m = re.match(r"today (\d+)-d", tf)
-        if m:
-            tf = f"now {m.group(1)}-d"
-            st.info(f"Timeframe adjusted to '{tf}' for API compatibility.")
+    # Convert 'today X-d' → 'now X-d' if user typed it
+    m_today = re.match(r"today (\d+)-d", tf)
+    if m_today:
+        tf = f"now {m_today.group(1)}-d"
+        st.info(f"Timeframe adjusted to '{tf}' for API compatibility.")
 
-    # Map platform to gprop
     gprop_map = {
         "Web Search": "",
         "YouTube": "youtube",
@@ -84,34 +104,33 @@ def main():
     }
     gprop = gprop_map[platform]
 
-    # --- DEBUG PAYLOAD ---
+    # DEBUG PAYLOAD -------------------------------------------------------
     with st.expander("Debug Payload", expanded=False):
         st.json({"kw_list": [keyword], "timeframe": tf, "geo": geo, "gprop": gprop})
 
-    # --- FETCH DATA ---
+    # FETCH DATA ----------------------------------------------------------
     with st.spinner("Fetching data from Google Trends..."):
-        pytrends = TrendReq(hl="en-US", tz=0)
         try:
-            pytrends.build_payload(
-                kw_list=[keyword],
-                timeframe=tf,
-                geo=geo,
-                gprop=gprop,
-            )
-            data = pytrends.interest_over_time()
+            data = fetch_interest(keyword, tf, geo, gprop)
         except ResponseError as err:
             code = getattr(err.response, "status_code", "unknown")
-            st.error(f"Google Trends API returned status code {code}.")
-            if hasattr(err, "response") and err.response is not None:
-                st.code(err.response.text or "(empty)")
+            if code == 429:
+                st.error(
+                    "Google returned **429 Too Many Requests**. This usually means the shared IP "
+                    "address on Streamlit Cloud hit a temporary rate limit or needs a CAPTCHA. "
+                    "Please wait a few minutes and try again, or switch to 'Web Search' platform, "
+                    "which is less strict than YouTube."
+                )
+            else:
+                st.error(f"Google Trends API returned status code {code}.")
             return
         except Exception as e:
             st.error(f"Unexpected error: {e}")
             return
 
-    # --- DISPLAY RESULTS ---
+    # DISPLAY -------------------------------------------------------------
     if data.empty:
-        st.warning("No data found for this query. Try adjusting your parameters.")
+        st.warning("No data found. Try different parameters.")
         return
 
     if "isPartial" in data.columns:
