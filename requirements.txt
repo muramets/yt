@@ -1,3 +1,2 @@
 pytrends
 pandas
-requests
