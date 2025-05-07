@@ -2,7 +2,6 @@
 import streamlit as st
 from pytrends.request import TrendReq
 import pandas as pd
-from requests.exceptions import HTTPError
 
 
 def main():
@@ -13,7 +12,7 @@ def main():
 
     # Параметры запроса с пояснениями
     timeframe = st.text_input(
-        "Timeframe (e.g., 'today 30-d' for last 30 days or 'YYYY-MM-DD YYYY-MM-DD')",
+        "Timeframe (e.g., 'today 7-d' for last 7 days, 'today 30-d' for last 30 days, or 'YYYY-MM-DD YYYY-MM-DD')",
         "today 30-d"
     )
     geo = st.text_input(
@@ -48,20 +47,16 @@ def main():
                 )
                 data = pytrends.interest_over_time()
 
-            except HTTPError as http_err:
-                # Специфическая обработка ошибки 400 Bad Request
-                status = http_err.response.status_code if http_err.response is not None else 'unknown'
-                if status == 400:
+            except Exception as e:
+                err_msg = str(e)
+                # Обработка ошибки 400 Bad Request
+                if '400' in err_msg:
                     st.error(
-                        "Bad request (400). Проверьте формат временного диапазона и код региона. "
-                        "Например: 'today 7-d', 'today 30-d' или '2025-01-01 2025-05-01'."
+                        "Bad request (400). Проверьте формат временного диапазона и код региона."
+                        " Например: 'today 7-d', 'today 30-d' или '2025-01-01 2025-05-01', код региона 'US', 'RU' или пусто."
                     )
                 else:
-                    st.error(f"HTTP error occurred: {http_err}")
-                return
-
-            except Exception as e:
-                st.error(f"Error fetching data: {e}")
+                    st.error(f"Error fetching data: {e}")
                 return
 
             if data.empty:
