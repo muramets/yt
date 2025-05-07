@@ -1,6 +1,7 @@
 # app.py
 import streamlit as st
 from pytrends.request import TrendReq
+from pytrends.exceptions import ResponseError
 import pandas as pd
 
 
@@ -36,6 +37,7 @@ def main():
     gprop = gprop_map[platform]
 
     if keyword:
+        # Показываем Payload для отладки
         st.write("**Payload for debugging:**")
         st.json({
             "kw_list": [keyword],
@@ -47,7 +49,6 @@ def main():
         with st.spinner("Fetching data from Google Trends..."):
             pytrends = TrendReq(hl='en-US', tz=0)
             try:
-                # Попытка создания payload и запроса
                 pytrends.build_payload(
                     kw_list=[keyword],
                     timeframe=timeframe,
@@ -56,10 +57,17 @@ def main():
                 )
                 data = pytrends.interest_over_time()
 
+            except ResponseError as re:
+                status = getattr(re.response, 'status_code', 'unknown')
+                st.error(f"Google Trends API returned status code {status}")
+                if hasattr(re, 'response'):
+                    # Показать текст ответа для диагностики
+                    st.subheader("Response Text")
+                    st.code(re.response.text or "(empty)")
+                return
+
             except Exception as e:
-                # Вывод подробностей ошибки для диагностики
-                st.error(f"Ошибка запроса: {e}")
-                st.exception(e)
+                st.error(f"Unexpected error: {e}")
                 return
 
             if data.empty:
@@ -78,6 +86,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 # requirements.txt
 streamlit
