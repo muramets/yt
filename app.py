@@ -8,22 +8,31 @@ import re
 
 def main():
     st.title("Google Trends Popularity Index")
+    # Tip for opening sidebar
+    st.markdown(
+        "**Tip:** Click the ☰ icon in the top-right corner to open the sidebar and access the Debug Payload."
+    )
 
     # Query form
     with st.form("query_form"):
         keyword = st.text_input("Keyword", "lofi study music")
 
-        # Timeframe selection
+        # Timeframe selection with help
         timeframe_option = st.selectbox(
             "Timeframe",
             ["Last 7 days", "Last 30 days", "Last 90 days", "Custom"],
-            index=1
+            index=1,
+            help="Choose a preset timeframe or select 'Custom' to enter your own date range"
         )
         if timeframe_option == "Custom":
             custom_tf = st.text_input(
                 "Custom timeframe",
                 "now 7-d",
-                help="Examples: 'now 7-d' for last 7 days, 'now 30-d' for last 30 days, or '2025-01-01 2025-05-01' for a specific date range"
+                help=(
+                    "Enter 'now 7-d' for the last 7 days, 'now 30-d' for the last 30 days, "
+                    "or specify a date range in the format 'YYYY-MM-DD YYYY-MM-DD', "
+                    "e.g. '2025-01-01 2025-05-01' for Jan 1 to May 1, 2025"
+                )
             )
             tf = custom_tf.strip()
         else:
