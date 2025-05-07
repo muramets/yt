@@ -8,20 +8,21 @@ def main():
     st.title("Google Trends Popularity Index")
 
     # Ввод ключевого слова
-    keyword = st.text_input("Enter keyword", "")
+    keyword = st.text_input("Enter keyword", "lofi study music")
 
     # Параметры запроса с пояснениями
     timeframe = st.text_input(
         "Timeframe (e.g., 'today 7-d' for last 7 days, 'today 30-d' for last 30 days, or 'YYYY-MM-DD YYYY-MM-DD')",
-        "today 30-d"
+        "today 7-d"
     )
     geo = st.text_input(
         "Region code (leave empty for worldwide, e.g. 'US' or 'RU')",
-        ""
+        "US"
     )
     platform = st.selectbox(
         "Platform",
-        ["Web Search", "YouTube", "Image Search", "News Search", "Google Shopping", "Top Charts"]
+        ["Web Search", "YouTube", "Image Search", "News Search", "Google Shopping", "Top Charts"],
+        index=1
     )
 
     gprop_map = {
@@ -35,10 +36,18 @@ def main():
     gprop = gprop_map[platform]
 
     if keyword:
+        st.write("**Payload for debugging:**")
+        st.json({
+            "kw_list": [keyword],
+            "timeframe": timeframe,
+            "geo": geo,
+            "gprop": gprop
+        })
+
         with st.spinner("Fetching data from Google Trends..."):
             pytrends = TrendReq(hl='en-US', tz=0)
             try:
-                # Создание payload для запроса
+                # Попытка создания payload и запроса
                 pytrends.build_payload(
                     kw_list=[keyword],
                     timeframe=timeframe,
@@ -48,15 +57,9 @@ def main():
                 data = pytrends.interest_over_time()
 
             except Exception as e:
-                err_msg = str(e)
-                # Обработка ошибки 400 Bad Request
-                if '400' in err_msg:
-                    st.error(
-                        "Bad request (400). Проверьте формат временного диапазона и код региона."
-                        " Например: 'today 7-d', 'today 30-d' или '2025-01-01 2025-05-01', код региона 'US', 'RU' или пусто."
-                    )
-                else:
-                    st.error(f"Error fetching data: {e}")
+                # Вывод подробностей ошибки для диагностики
+                st.error(f"Ошибка запроса: {e}")
+                st.exception(e)
                 return
 
             if data.empty:
@@ -75,3 +78,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# requirements.txt
+streamlit
+pytrends
+pandas
