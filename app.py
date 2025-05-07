@@ -95,8 +95,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# requirements.txt
-streamlit
-pytrends
-pandas
